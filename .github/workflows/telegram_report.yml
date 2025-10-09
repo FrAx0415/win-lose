@@ -24,7 +24,7 @@ jobs:
 
       - name: Send Telegram recap
         env:
-          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-          ID_CANAL: ${{ secrets.ID_CANAL }}
+          BOT_TOKEN: "8025040575:AAFA5cw3YpjrnsdU58k9_wB9MNwLp0GJ9ds"
+          ID_CANAL: -1003192950351
         run: |
           python send_report.py
