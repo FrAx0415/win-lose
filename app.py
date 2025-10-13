@@ -600,21 +600,18 @@ async def cmd_storico(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def send_and_pin_week_report(context: ContextTypes.DEFAULT_TYPE):
     import matplotlib.pyplot as plt
+    import os
 
     print(f"[JOB] Invio report automatico alle {datetime.datetime.now()}")
-
     week_key = get_week_key()
-    # Dati giocatori e vittorie settimana
     week_wins = [stats_week[p]["win"] for p in players]
-    week_losses = [stats_week[p]["lose"] for p in players]
     week_labels = []
     colors = []
 
     sorted_idx = sorted(range(len(players)), key=lambda i: week_wins[i], reverse=True)
-    top_idxs = sorted_idx[:3]  # top 3 per medaglie
+    top_idxs = sorted_idx[:3]
 
     for i, p in enumerate(players):
-        # podio: oro, argento, bronzo, altri blu
         if i == top_idxs[0] and week_wins[top_idxs[0]] > 0:
             week_labels.append(f"🥇{p}")
             colors.append("#ffd700")
@@ -626,7 +623,7 @@ async def send_and_pin_week_report(context: ContextTypes.DEFAULT_TYPE):
             colors.append("#cd7f32")
         else:
             week_labels.append(p)
-            colors.append("#2196f3")  # blu
+            colors.append("#2196f3")
 
     # BAR PLOT PNG
     fig, ax = plt.subplots(figsize=(9, 5))
@@ -641,13 +638,12 @@ async def send_and_pin_week_report(context: ContextTypes.DEFAULT_TYPE):
     fig.savefig(img_path, dpi=210, bbox_inches='tight')
     plt.close(fig)
 
-    # Messaggio classifica testuale
+    # Report testuale
     report = (
         "📊 *REPORT SETTIMANALE* ⚽️\n"
         "━━━━━━━━━━━━━━━━━━━━\n\n"
         f"📅 Settimana: *{week_key}*\n\n"
     )
-    # Ordina per vittorie (come il bar plot)
     ordered = [players[i] for i in sorted_idx]
     for idx, p in enumerate(ordered, 1):
         w_sett = stats_week[p]["win"]
@@ -681,82 +677,8 @@ async def send_and_pin_week_report(context: ContextTypes.DEFAULT_TYPE):
         "🎮 _Stats by Calcetto Bot_"
     )
 
+    # -- UN SOLO MESSAGGIO, invia PNG, poi pinna, poi elimina file --
     try:
-        # Invia PNG + testo
-        msg_grafico = await context.bot.send_photo(
-            chat_id=ID_CANAL,
-            photo=open(img_path, 'rb'),
-            caption=report,
-            parse_mode="Markdown"
-        )
-        await context.bot.pin_chat_message(
-            chat_id=ID_CANAL,
-            message_id=msg_grafico.message_id,
-            disable_notification=True
-        )
-        os.remove(img_path)
-        print("✅ Report PNG e messaggio fissati con successo!")
-    except Exception as e:
-        print(f"❌ ERRORE nell'invio o pin: {e}")
-
-    import matplotlib.pyplot as plt
-
-    print(f"[JOB] Invio report automatico alle {datetime.datetime.now()}")
-
-    week_key = get_week_key()
-    # Dati giocatori e vittorie settimana
-    week_wins = [stats_week[p]["win"] for p in players]
-    week_losses = [stats_week[p]["lose"] for p in players]
-    week_labels = []
-    colors = []
-
-    sorted_idx = sorted(range(len(players)), key=lambda i: week_wins[i], reverse=True)
-    top_idxs = sorted_idx[:3]  # top 3 per medaglie
-
-    for i, p in enumerate(players):
-        # podio: oro, argento, bronzo, altri blu
-        if i == top_idxs[0] and week_wins[top_idxs[0]] > 0:
-            week_labels.append(f"🥇{p}")
-            colors.append("#ffd700")
-        elif i == top_idxs[1] and week_wins[top_idxs[1]] > 0:
-            week_labels.append(f"🥈{p}")
-            colors.append("#c0c0c0")
-        elif i == top_idxs[2] and week_wins[top_idxs[2]] > 0:
-            week_labels.append(f"🥉{p}")
-            colors.append("#cd7f32")
-        else:
-            week_labels.append(p)
-            colors.append("#2196f3")  # blu
-
-    # BAR PLOT PNG
-    fig, ax = plt.subplots(figsize=(9, 5))
-    bars = ax.barh(week_labels, week_wins, color=colors, height=0.6)
-    ax.set_title(f"Vittorie nella settimana {week_key}\n", fontsize=16, fontweight='bold')
-    ax.set_xlabel("Numero vittorie", fontsize=13)
-    ax.set_xlim(left=0)
-    ax.bar_label(bars, fmt='%d', label_type='edge', fontsize=13)
-    ax.grid(True, alpha=0.12, axis='x')
-    plt.tight_layout()
-    img_path = f"report_week_{week_key.replace('/','-')}.png"
-    fig.savefig(img_path, dpi=210, bbox_inches='tight')
-    plt.close(fig)
-
-    # Messaggio classifica testuale
-    report = (
-        "📊 *REPORT SETTIMANALE* ⚽️\n"
-        "━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"📅 Settimana: *{week_key}*\n\n"
-    )
-    # Ordina per vittorie (come il bar plot)
-    ordered = [players[i] for i in sorted_idx]
-    for idx, p in enumerate(ordered, 1):
-        w_sett = stats_week[p]["win"]
-        l_sett = stats_week[p]["lose"]
-        rank = ""
-        if idx == 1 and w_sett > 0:
-            rank
-        try:
-        # Invia PNG + testo
         with open(img_path, 'rb') as photo_file:
             msg_grafico = await context.bot.send_photo(
                 chat_id=ID_CANAL,
@@ -764,8 +686,7 @@ async def send_and_pin_week_report(context: ContextTypes.DEFAULT_TYPE):
                 caption=report,
                 parse_mode="Markdown"
             )
-        os.remove(img_path)  # ELIMINA SUBITO DOPO IL SEND
-
+        # Pinna il messaggio appena inviato
         await context.bot.pin_chat_message(
             chat_id=ID_CANAL,
             message_id=msg_grafico.message_id,
@@ -773,10 +694,11 @@ async def send_and_pin_week_report(context: ContextTypes.DEFAULT_TYPE):
         )
         print("✅ Report PNG e messaggio fissati con successo!")
     except Exception as e:
-        # Nel caso di errore di invio, prova comunque a eliminare il file
+        print(f"❌ ERRORE nell'invio o pin: {e}")
+    finally:
+        # Elimina il file PNG sempre, anche in caso di errore
         if os.path.exists(img_path):
             os.remove(img_path)
-        print(f"❌ ERRORE nell'invio o pin: {e}")
 
 
 async def error_handler(update, context):
