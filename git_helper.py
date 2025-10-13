@@ -1,6 +1,8 @@
 import subprocess
 import sys
 from typing import Optional
+import asyncio
+import concurrent.futures
 
 class GitSyncError(Exception):
     """Eccezione personalizzata per errori Git"""
@@ -9,13 +11,6 @@ class GitSyncError(Exception):
 def run_git_command(command: list[str], cwd: str = ".") -> tuple[bool, str]:
     """
     Esegue comando Git e restituisce (success, output/error).
-
-    Args:
-        command: Lista di argomenti comando (es. ['git', 'pull', '--rebase'])
-        cwd: Directory di lavoro
-
-    Returns:
-        (True, output) se successo, (False, stderr) se errore
     """
     try:
         result = subprocess.run(
@@ -36,51 +31,48 @@ def run_git_command(command: list[str], cwd: str = ".") -> tuple[bool, str]:
 
 def git_sync_and_commit(files: list[str], commit_message: str) -> bool:
     """
-    Workflow semplificato: commit locale → pull → push.
-    Gestisce modifiche automatiche dei pre-commit hooks.
+    Workflow con gestione pre-commit hook auto-fix.
+    Eseguito in background thread per non bloccare bot.
     """
     print(f"[GIT] Sync automatico per {len(files)} file...")
 
-    # STEP 1: Add iniziale
-    for f in files:
-        success, output = run_git_command(["git", "add", f])
-        if not success:
-            print(f"[GIT] ⚠️ Add fallito per {f}: {output}")
-            return False
+    max_attempts = 2
 
-    # STEP 2: Primo tentativo di commit
-    success, output = run_git_command(["git", "commit", "-m", commit_message])
-
-    # STEP 3: Se pre-commit ha modificato file, ri-add e ricommittta
-    if not success and "files were modified by this hook" in output:
-        print("[GIT] ℹ️ Pre-commit ha formattato i file, ri-aggiungo...")
-
-        # Ri-add tutti i file modificati dai hook
+    for attempt in range(max_attempts):
+        # Add file
         for f in files:
-            run_git_command(["git", "add", f])
+            success, _ = run_git_command(["git", "add", f])
+            if not success:
+                print(f"[GIT] ⚠️ Add fallito per {f}")
+                return False
 
-        # Secondo tentativo di commit
+        # Tentativo commit
         success, output = run_git_command(["git", "commit", "-m", commit_message])
 
-        if not success:
-            print(f"[GIT] ❌ Commit fallito anche dopo ri-add: {output}")
-            return False
-    elif not success:
+        if success:
+            break
+
+        if "files were modified by this hook" in output:
+            if attempt < max_attempts - 1:
+                print(f"[GIT] ℹ️ Hook ha modificato file, tentativo {attempt + 2}/{max_attempts}...")
+                continue
+            else:
+                print("[GIT] ❌ Troppi tentativi, hook continua a modificare file")
+                return False
+
         if "nothing to commit" in output.lower():
             print("[GIT] ℹ️ Nessuna modifica da committare")
-        else:
-            print(f"[GIT] ❌ Commit fallito: {output}")
-            return False
+            break
 
-    # STEP 4: Pull con merge
+        print(f"[GIT] ❌ Commit fallito: {output}")
+        return False
+
+    # Pull
     success, output = run_git_command(["git", "pull", "--no-rebase"])
-    if not success:
-        if "already up to date" in output.lower():
-            print("[GIT] ℹ️ Già aggiornato con remoto")
-        else:
-            print(f"[GIT] ⚠️ Pull fallito: {output}")
+    if not success and "already up to date" not in output.lower():
+        print(f"[GIT] ⚠️ Pull fallito: {output}")
 
-    # STEP 5: Push
+    # Push
     success, output = run_git_command(["git", "push"])
     if not success:
         print(f"[GIT] ❌ Push fallito: {output}")
@@ -89,45 +81,29 @@ def git_sync_and_commit(files: list[str], commit_message: str) -> bool:
     print("[GIT] ✅ Sync completato")
     return True
 
-
-def git_commit_and_push(files: list[str], message: str) -> bool:
+async def git_auto_sync_async(files: list[str], commit_message: str) -> bool:
     """
-    Commit e push dei file specificati.
-
-    Args:
-        files: Lista di path file da committare
-        message: Messaggio di commit
-
-    Returns:
-        True se commit+push riusciti, False altrimenti
+    Esegue git sync in un thread separato per non bloccare il bot.
+    Ritorna immediatamente, commit avviene in background.
     """
-    print(f"[GIT] Commit e push di {len(files)} file...")
+    loop = asyncio.get_running_loop()
 
-    # Add dei file
-    for f in files:
-        success, output = run_git_command(["git", "add", f])
-        if not success:
-            print(f"[GIT] ⚠️ Add fallito per {f}: {output}")
+    # Esegui git_sync_and_commit in un executor thread
+    with concurrent.futures.ThreadPoolExecutor() as pool:
+        try:
+            # run_in_executor esegue funzione sincrona in thread separato
+            result = await loop.run_in_executor(
+                pool,
+                git_sync_and_commit,
+                files,
+                commit_message
+            )
+            return result
+        except Exception as e:
+            print(f"[GIT] ❌ Errore async: {e}")
             return False
 
-    # Commit (potrebbe non esserci nulla da committare)
-    success, output = run_git_command(["git", "commit", "-m", message])
-    if not success:
-        if "nothing to commit" in output.lower():
-            print("[GIT] ℹ️ Nessuna modifica da committare")
-            return True
-        print(f"[GIT] ❌ Commit fallito: {output}")
-        return False
-
-    # Push
-    success, output = run_git_command(["git", "push", "origin", "main"])
-    if not success:
-        print(f"[GIT] ❌ Push fallito: {output}")
-        return False
-
-    print("[GIT] ✅ Commit e push completati")
-    return True
 
 def git_auto_sync(files: list[str], commit_message: str) -> bool:
-    """Alias per compatibilità con il codice esistente"""
+    """Versione sincrona (deprecata, usa git_auto_sync_async)"""
     return git_sync_and_commit(files, commit_message)

@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 load_dotenv()
 
-from git_helper import git_auto_sync
+from git_helper import git_auto_sync_async
 
 nest_asyncio.apply()
 
@@ -49,15 +49,9 @@ def load_totali():
 
 
 def save_totali(data):
+    """Salva totali (solo file locale, commit in background)"""
     with open(TOTALI_FILE, "w") as f:
         json.dump(data, f, indent=2)
-
-    success = git_auto_sync(
-        files=[TOTALI_FILE],
-        commit_message=f"stats: aggiornamento totali {datetime.datetime.now().isoformat()}"
-    )
-    if not success:
-        print(f"⚠️ ATTENZIONE: Salvataggio locale OK ma sync Git fallito per {TOTALI_FILE}")
 
 
 def load_settimanali():
@@ -69,15 +63,9 @@ def load_settimanali():
 
 
 def save_settimanali(data):
+    """Salva settimanali (solo file locale, commit in background)"""
     with open(SETTIMANALI_FILE, "w") as f:
         json.dump(data, f, indent=2)
-
-    success = git_auto_sync(
-        files=[SETTIMANALI_FILE],
-        commit_message=f"stats: aggiornamento settimanali {datetime.datetime.now().isoformat()}"
-    )
-    if not success:
-        print(f"⚠️ ATTENZIONE: Salvataggio locale OK ma sync Git fallito per {SETTIMANALI_FILE}")
 
 
 def load_stats_settimana_corrente(stats_settimanali):
@@ -125,6 +113,34 @@ def parse_args(text: str):
     return name, max(1, qty)
 
 
+def add_player_to_file(name: str) -> bool:
+    """
+    Aggiunge un nuovo giocatore ai file di stats.
+    Ritorna True se successo, False se già esistente.
+    """
+    global players, totali, stats_week
+
+    # Normalizza nome (prima lettera maiuscola)
+    name = name.strip().capitalize()
+
+    # Controlla se esiste già
+    if name in players:
+        return False
+
+    # Aggiungi alla lista
+    players.append(name)
+
+    # Aggiungi a totali
+    totali[name] = {"win": 0, "lose": 0}
+    save_totali(totali)
+
+    # Aggiungi a stats settimana corrente
+    stats_week[name] = {"win": 0, "lose": 0}
+    save_stats_week(settimanali, stats_week)
+
+    return True
+
+
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = (
         "🎮 *CALCETTO STATS BOT* ⚽️\n"
@@ -136,6 +152,9 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "❌ `/lose <nome> [quantità]`\n"
         "   _Aggiungi sconfitta/e_\n"
         "   _Es: /lose Joel_\n\n"
+        "➕ `/add <nome>`\n"
+        "   _Aggiungi nuovo giocatore_\n"
+        "   _Es: /add Marco_\n\n"
         "📈 `/totali`\n"
         "   _Visualizza statistiche complete_\n\n"
         "👥 `/nomi`\n"
@@ -145,8 +164,73 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🔄 `/reset <password>`\n"
         "   _Azzera contatori settimanali_\n\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
+        "💡 _Bot sviluppato con_ ❤️"
     )
     await update.message.reply_text(msg, parse_mode="Markdown")
+
+
+async def cmd_add_player(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not update.message.text:
+        await update.effective_chat.send_message(
+            "⚠️ Questo comando funziona solo con messaggi testuali.",
+            parse_mode="Markdown"
+        )
+        return
+
+    parts = update.message.text.split()
+    if len(parts) < 2:
+        await update.message.reply_text(
+            "❌ *Formato non valido*\n\n"
+            "📝 Uso corretto:\n"
+            "`/add <nome_giocatore>`\n\n"
+            "💡 Esempio:\n"
+            "• `/add Marco`",
+            parse_mode="Markdown"
+        )
+        return
+
+    player_name = parts[1].strip().capitalize()
+
+    # Valida nome (solo lettere)
+    if not player_name.isalpha():
+        await update.message.reply_text(
+            "❌ *Nome non valido*\n\n"
+            "⚠️ Il nome deve contenere solo lettere\n\n"
+            "💡 Riprova con un nome valido",
+            parse_mode="Markdown"
+        )
+        return
+
+    # Tenta aggiunta
+    success = add_player_to_file(player_name)
+
+    if not success:
+        await update.message.reply_text(
+            f"⚠️ *Giocatore già esistente*\n\n"
+            f"👤 *{player_name}* è già registrato\n\n"
+            f"📋 Usa `/nomi` per vedere tutti i giocatori",
+            parse_mode="Markdown"
+        )
+        return
+
+    # RISPOSTA IMMEDIATA all'utente
+    await update.message.reply_text(
+        f"✅ *Giocatore Aggiunto!*\n\n"
+        f"👤 Nome: *{player_name}*\n"
+        f"📊 Stats inizializzate a 0\n\n"
+        f"🎮 Totale giocatori: *{len(players)}*\n\n"
+        f"💡 Puoi iniziare a tracciare le sue\n"
+        f"   partite con `/win {player_name}`",
+        parse_mode="Markdown"
+    )
+
+    # Commit Git in BACKGROUND (non blocca)
+    asyncio.create_task(
+        git_auto_sync_async(
+            files=[TOTALI_FILE, SETTIMANALI_FILE],
+            commit_message=f"player: aggiunto {player_name}"
+        )
+    )
 
 
 async def cmd_win(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -170,12 +254,15 @@ async def cmd_win(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    # Aggiorna stats PRIMA della risposta
     totali[name]["win"] += qty
     stats_week[name]["win"] += qty
+
+    # Salva localmente (veloce, no commit)
     save_totali(totali)
     save_stats_week(settimanali, stats_week)
 
-    # Messaggio con emoji dinamica basata su quantità
+    # RISPOSTA IMMEDIATA all'utente
     emoji = "🎉" if qty > 1 else "✅"
     msg = (
         f"{emoji} *Vittoria registrata!*\n\n"
@@ -187,6 +274,14 @@ async def cmd_win(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🏅 Totale carriera: *{totali[name]['win']}* 🏆"
     )
     await update.message.reply_text(msg, parse_mode="Markdown")
+
+    # Commit Git in BACKGROUND (non blocca)
+    asyncio.create_task(
+        git_auto_sync_async(
+            files=[TOTALI_FILE, SETTIMANALI_FILE],
+            commit_message=f"win: {name} +{qty}"
+        )
+    )
 
 
 async def cmd_lose(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -210,11 +305,15 @@ async def cmd_lose(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    # Aggiorna stats
     totali[name]["lose"] += qty
     stats_week[name]["lose"] += qty
+
+    # Salva localmente
     save_totali(totali)
     save_stats_week(settimanali, stats_week)
 
+    # RISPOSTA IMMEDIATA
     emoji = "💔" if qty > 1 else "📉"
     msg = (
         f"{emoji} *Sconfitta registrata*\n\n"
@@ -227,6 +326,14 @@ async def cmd_lose(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(msg, parse_mode="Markdown")
 
+    # Commit Git in BACKGROUND
+    asyncio.create_task(
+        git_auto_sync_async(
+            files=[TOTALI_FILE, SETTIMANALI_FILE],
+            commit_message=f"lose: {name} +{qty}"
+        )
+    )
+
 
 async def cmd_totali(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
@@ -236,13 +343,11 @@ async def cmd_totali(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Header elegante
     msg = (
         "🏆 *CLASSIFICA GENERALE* ⚽️\n"
         "━━━━━━━━━━━━━━━━━━━━\n\n"
     )
 
-    # Ordina giocatori per vittorie totali (discendente)
     sorted_players = sorted(
         players,
         key=lambda p: totali[p]["win"],
@@ -255,7 +360,6 @@ async def cmd_totali(update: Update, context: ContextTypes.DEFAULT_TYPE):
         w_sett = stats_week[p]["win"]
         l_sett = stats_week[p]["lose"]
 
-        # Medaglie per top 3
         if idx == 1:
             rank = "🥇"
         elif idx == 2:
@@ -265,7 +369,6 @@ async def cmd_totali(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             rank = f"{idx}."
 
-        # Calcola ratio
         total_games = w_tot + l_tot
         win_rate = (w_tot / total_games * 100) if total_games > 0 else 0
 
@@ -315,6 +418,14 @@ async def cmd_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📅 Settimana corrente: *{get_week_key()}*\n\n"
         "🎮 Buona fortuna per la nuova settimana!",
         parse_mode="Markdown"
+    )
+
+    # Commit Git in BACKGROUND
+    asyncio.create_task(
+        git_auto_sync_async(
+            files=[SETTIMANALI_FILE],
+            commit_message=f"reset: settimana {week_key}"
+        )
     )
 
 
@@ -371,14 +482,12 @@ async def cmd_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def send_and_pin_week_report(context: ContextTypes.DEFAULT_TYPE):
     print(f"[JOB] Invio report automatico alle {datetime.datetime.now()}")
 
-    # Header del report
     report = (
         "📊 *REPORT SETTIMANALE* ⚽️\n"
         "━━━━━━━━━━━━━━━━━━━━\n\n"
         f"📅 Settimana: *{get_week_key()}*\n\n"
     )
 
-    # Ordina per vittorie settimanali
     sorted_players = sorted(
         players,
         key=lambda p: stats_week[p]["win"],
@@ -389,7 +498,6 @@ async def send_and_pin_week_report(context: ContextTypes.DEFAULT_TYPE):
         w_sett = stats_week[p]["win"]
         l_sett = stats_week[p]["lose"]
 
-        # Emoji ranking
         if idx == 1 and w_sett > 0:
             rank = "👑"
         elif idx == 2:
@@ -399,7 +507,6 @@ async def send_and_pin_week_report(context: ContextTypes.DEFAULT_TYPE):
         else:
             rank = f"{idx}."
 
-        # Calcola ratio settimanale
         week_games = w_sett + l_sett
         week_rate = (w_sett / week_games * 100) if week_games > 0 else 0
 
@@ -468,6 +575,7 @@ def main():
     print("🔗 Aggancio handlers...")
     app.add_handler(CommandHandler("win", cmd_win))
     app.add_handler(CommandHandler("lose", cmd_lose))
+    app.add_handler(CommandHandler("add", cmd_add_player))
     app.add_handler(CommandHandler("totali", cmd_totali))
     app.add_handler(CommandHandler("reset", cmd_reset))
     app.add_handler(CommandHandler("nomi", cmd_nomi))
