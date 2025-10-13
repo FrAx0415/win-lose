@@ -1,0 +1,12 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: check-json
+        name: Check JSON syntax
+      - id: pretty-format-json
+        name: Format JSON files
+        args: ['--autofix', '--indent=2']
+        files: \.(json)$
+      - id: end-of-file-fixer
+      - id: trailing-whitespace

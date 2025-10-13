@@ -10,13 +10,15 @@ from datetime import time
 import pytz
 from zoneinfo import ZoneInfo
 
+# NUOVO IMPORT
+from git_helper import git_auto_sync
 
 nest_asyncio.apply()
 
 BOT_TOKEN = "8025040575:AAFA5cw3YpjrnsdU58k9_wB9MNwLp0GJ9ds"
 players = ["Fra", "Dani", "Salvo", "Dennis", "Joel", "Luca"]
 
-ID_CANAL = -1003192950351  # <-- Inserisci qui l'ID del canale!
+ID_CANAL = -1003192950351
 
 TOTALI_FILE = "stats_totali.json"
 SETTIMANALI_FILE = "stats_settimanali.json"
@@ -26,7 +28,7 @@ def get_week_key():
     monday = today - datetime.timedelta(days=today.weekday())
     return monday.strftime("%d/%m/%y")
 
-# --- Caricamento/Salvataggio Totali ---
+# --- Caricamento Totali (invariato) ---
 def load_totali():
     if os.path.exists(TOTALI_FILE):
         with open(TOTALI_FILE, "r") as f:
@@ -38,11 +40,21 @@ def load_totali():
     else:
         return {p: {"win": 0, "lose": 0} for p in players}
 
+# --- MODIFICATO: Salvataggio Totali con Git ---
 def save_totali(data):
+    """Salva totali e committa su Git"""
     with open(TOTALI_FILE, "w") as f:
-        json.dump(data, f)
+        json.dump(data, f, indent=2)
 
-# --- Caricamento/Salvataggio Settimanali ---
+    # Auto-sync con Git
+    success = git_auto_sync(
+        files=[TOTALI_FILE],
+        commit_message=f"stats: aggiornamento totali {datetime.datetime.now().isoformat()}"
+    )
+    if not success:
+        print(f"⚠️ ATTENZIONE: Salvataggio locale OK ma sync Git fallito per {TOTALI_FILE}")
+
+# --- Caricamento Settimanali (invariato) ---
 def load_settimanali():
     if os.path.exists(SETTIMANALI_FILE):
         with open(SETTIMANALI_FILE, "r") as f:
@@ -50,9 +62,19 @@ def load_settimanali():
     else:
         return {}
 
+# --- MODIFICATO: Salvataggio Settimanali con Git ---
 def save_settimanali(data):
+    """Salva settimanali e committa su Git"""
     with open(SETTIMANALI_FILE, "w") as f:
-        json.dump(data, f)
+        json.dump(data, f, indent=2)
+
+    # Auto-sync con Git
+    success = git_auto_sync(
+        files=[SETTIMANALI_FILE],
+        commit_message=f"stats: aggiornamento settimanali {datetime.datetime.now().isoformat()}"
+    )
+    if not success:
+        print(f"⚠️ ATTENZIONE: Salvataggio locale OK ma sync Git fallito per {SETTIMANALI_FILE}")
 
 def load_stats_settimana_corrente(stats_settimanali):
     week_key = get_week_key()
@@ -182,26 +204,20 @@ async def cmd_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"Errore nell'invio: {e}")
 
-
-# ---- NUOVA FUNZIONE PIN ----
 async def send_and_pin_week_report(context: ContextTypes.DEFAULT_TYPE):
     print(f"[JOB] Invio report automatico alle {datetime.datetime.now()}")
-    print("STO PER INVIARE/PINNARE IL REPORT SETTIMANALE")
     lines = []
     for p in players:
         w_sett = stats_week[p]["win"]
         l_sett = stats_week[p]["lose"]
         lines.append(f"{p}: {w_sett} vittorie, {l_sett} sconfitte")
     report = "Statistiche settimanali:\n" + "\n".join(lines)
-    print(f"Testo report: {report}")
     try:
         msg = await context.bot.send_message(chat_id=ID_CANAL, text=report)
-        print(f"Messaggio Telegram creato con message_id: {msg.message_id}")
         await context.bot.pin_chat_message(chat_id=ID_CANAL, message_id=msg.message_id, disable_notification=True)
         print("Messaggio fissato con successo!")
     except Exception as e:
         print(f"ERRORE nell'invio o pin: {e}")
-
 
 async def error_handler(update, context):
     msg = "Si è verificato un errore imprevisto."
@@ -212,7 +228,6 @@ async def error_handler(update, context):
 
 def main():
     print("Avvio bot...")
-    # Imposta timezone e defaults
     tz_italia = ZoneInfo("Europe/Rome")
     defaults = Defaults(tzinfo=tz_italia)
 
@@ -220,7 +235,6 @@ def main():
     app = ApplicationBuilder().token(BOT_TOKEN).defaults(defaults).build()
 
     print("Aggancio handlers...")
-    # print(f"JobQueue run_daily: ora locale {datetime.datetime.now()} | Orario job: {datetime.time(hour=16, minute=35)} | TZ: {ZoneInfo('Europe/Rome')}")
     app.add_handler(CommandHandler("win", cmd_win))
     app.add_handler(CommandHandler("lose", cmd_lose))
     app.add_handler(CommandHandler("totali", cmd_totali))
@@ -231,14 +245,7 @@ def main():
 
     print("Registro error handler...")
     app.add_error_handler(error_handler)
-    
-    # print("Programmo job report schedulato...")
-    # app.job_queue.run_daily(
-    #     send_and_pin_week_report,
-    #     time=datetime.time(hour=16, minute=37),
-    #     days=(3,),  # Giovedì
-    #     chat_id=ID_CANAL
-    # )
+
     print("Avvio polling... (il bot ora è pronto!)")
     loop = asyncio.get_event_loop()
     loop.run_until_complete(app.run_polling())
