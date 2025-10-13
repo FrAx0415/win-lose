@@ -483,10 +483,8 @@ async def cmd_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def cmd_storico(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Mostra lo storico delle vittorie per un giocatore sotto forma di grafico PNG.
-    Uso: /storico <nome>
-    """
+    import matplotlib.pyplot as plt
+
     text = update.message.text
     parts = text.split()
     if len(parts) != 2:
@@ -504,67 +502,157 @@ async def cmd_storico(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ *Giocatore non trovato.*", parse_mode="Markdown")
         return
 
-    # Prepara dati storico settimanale
     labels = []
-    data = []
-    for week, week_stats in settimanali.items():
-        n_win = week_stats.get(player, {}).get('win', 0)
-        labels.append(week)
-        data.append(n_win)
+    win_rates = []
+    wins_data = []
+    losses_data = []
 
-    if not any(data):
+    for week, week_stats in settimanali.items():
+        wins = week_stats.get(player, {}).get('win', 0)
+        losses = week_stats.get(player, {}).get('lose', 0)
+        total_games = wins + losses
+        win_rate = (wins / total_games * 100) if total_games > 0 else 0
+        labels.append(week)  # formato date chiave tipo 13/10/25
+        win_rates.append(win_rate)
+        wins_data.append(wins)
+        losses_data.append(losses)
+
+    if not any(wins_data) and not any(losses_data):
         await update.message.reply_text(
-            f"ℹ️ Nessuna vittoria registrata per *{player}*.",
+            f"ℹ️ Nessuna partita registrata per *{player}*.",
             parse_mode="Markdown"
         )
         return
 
+    # Trova la data della miglior/peggiore settimana
+    best_week_idx = win_rates.index(max(win_rates)) if win_rates else None
+    best_week_date = labels[best_week_idx] if best_week_idx is not None else "-"
+    worst_week_idx = win_rates.index(min([r for r in win_rates if r > 0])) if any(win_rates) else None
+    worst_week_date = labels[worst_week_idx] if worst_week_idx is not None else "-"
+
+    # Converte data da "13/10/25" a "13/10/2025" (facoltativo)
+    def convert_date(date_str):
+        parts = date_str.split('/')
+        if len(parts[-1]) == 2:
+            # Es: "13/10/25" -> "13/10/2025"
+            parts[-1] = "20" + parts[-1]
+        return "/".join(parts)
+
+    best_week_date = convert_date(best_week_date)
+    worst_week_date = convert_date(worst_week_date)
+
     # Genera grafico PNG
-    fig, ax = plt.subplots(figsize=(7, 4))
-    ax.plot(labels, data, marker='o', color="#1e88e5", linewidth=2)
-    ax.set_title(f"Storico vittorie - {player}", fontsize=14)
-    ax.set_xlabel("Settimana")
-    ax.set_ylabel("Vittorie")
-    plt.xticks(rotation=45, fontsize=8)
-    plt.yticks(fontsize=10)
-    plt.grid(True, alpha=0.3)
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
+
+    # Grafico 1: Win Rate percentuale
+    ax1.plot(labels, win_rates, marker='o', color="#4caf50", linewidth=3, markersize=6)
+    ax1.set_title(f"📊 Storico Performance - {player}", fontsize=16, fontweight='bold')
+    ax1.set_ylabel("Win Rate (%)", fontsize=12)
+    ax1.set_ylim(0, 100)
+    ax1.grid(True, alpha=0.3)
+    ax1.tick_params(axis='x', rotation=45, labelsize=9)
+    ax1.tick_params(axis='y', labelsize=10)
+    ax1.axhline(y=50, color='gray', linestyle='--', alpha=0.7, label='50% Soglia')
+    ax1.legend()
+
+    # Grafico 2: Vittorie vs Sconfitte (barre)
+    width = 0.35
+    x_pos = range(len(labels))
+    ax2.bar([x - width/2 for x in x_pos], wins_data, width, label='Vittorie 🏆', color='#4caf50', alpha=0.8)
+    ax2.bar([x + width/2 for x in x_pos], losses_data, width, label='Sconfitte ❌', color='#f44336', alpha=0.8)
+
+    ax2.set_xlabel("Settimana", fontsize=12)
+    ax2.set_ylabel("Numero Partite", fontsize=12)
+    ax2.set_xticks(x_pos)
+    ax2.set_xticklabels(labels, rotation=45, fontsize=9)
+    ax2.legend()
+    ax2.grid(True, alpha=0.3, axis='y')
 
     img_path = f"storico_{player}.png"
     plt.tight_layout()
-    fig.savefig(img_path)
+    fig.savefig(img_path, dpi=300, bbox_inches='tight')
     plt.close(fig)
 
-    # Testo risposta + grafico allegato
-    await update.message.reply_text(
-        f"📈 *Storico di {player}*\n"
-        f"Totale vittorie: *{totali[player]['win']}* | Sconfitte: *{totali[player]['lose']}*\n"
-        f"Prestazione settimanale qui sotto 👇",
+    # Statistiche globali
+    total_wins = totali[player]['win']
+    total_losses = totali[player]['lose']
+    total_games = total_wins + total_losses
+    overall_win_rate = (total_wins / total_games * 100) if total_games > 0 else 0
+
+    # Unico messaggio con dati richiesti
+    await context.bot.send_photo(
+        chat_id=update.effective_chat.id,
+        photo=open(img_path, 'rb'),
+        caption=(
+            f"📊 *Analisi Performance - {player}*\n\n"
+            f"🏅 **Statistiche Totali:**\n"
+            f"• Vittorie: *{total_wins}* | Sconfitte: *{total_losses}*\n"
+            f"• Win Rate: *{overall_win_rate:.1f}%*\n\n"
+            f"📈 **Performance Settimanali:**\n"
+            f"• Miglior settimana: *{best_week_date}*\n"
+            f"• Settimana più difficile: *{worst_week_date}*"
+        ),
         parse_mode="Markdown"
     )
-    await context.bot.send_photo(chat_id=update.effective_chat.id, photo=open(img_path, 'rb'))
-
     os.remove(img_path)
 
 
+
 async def send_and_pin_week_report(context: ContextTypes.DEFAULT_TYPE):
+    import matplotlib.pyplot as plt
+
     print(f"[JOB] Invio report automatico alle {datetime.datetime.now()}")
 
+    week_key = get_week_key()
+    # Dati giocatori e vittorie settimana
+    week_wins = [stats_week[p]["win"] for p in players]
+    week_losses = [stats_week[p]["lose"] for p in players]
+    week_labels = []
+    colors = []
+
+    sorted_idx = sorted(range(len(players)), key=lambda i: week_wins[i], reverse=True)
+    top_idxs = sorted_idx[:3]  # top 3 per medaglie
+
+    for i, p in enumerate(players):
+        # podio: oro, argento, bronzo, altri blu
+        if i == top_idxs[0] and week_wins[top_idxs[0]] > 0:
+            week_labels.append(f"🥇{p}")
+            colors.append("#ffd700")
+        elif i == top_idxs[1] and week_wins[top_idxs[1]] > 0:
+            week_labels.append(f"🥈{p}")
+            colors.append("#c0c0c0")
+        elif i == top_idxs[2] and week_wins[top_idxs[2]] > 0:
+            week_labels.append(f"🥉{p}")
+            colors.append("#cd7f32")
+        else:
+            week_labels.append(p)
+            colors.append("#2196f3")  # blu
+
+    # BAR PLOT PNG
+    fig, ax = plt.subplots(figsize=(9, 5))
+    bars = ax.barh(week_labels, week_wins, color=colors, height=0.6)
+    ax.set_title(f"Vittorie nella settimana {week_key}\n", fontsize=16, fontweight='bold')
+    ax.set_xlabel("Numero vittorie", fontsize=13)
+    ax.set_xlim(left=0)
+    ax.bar_label(bars, fmt='%d', label_type='edge', fontsize=13)
+    ax.grid(True, alpha=0.12, axis='x')
+    plt.tight_layout()
+    img_path = f"report_week_{week_key.replace('/','-')}.png"
+    fig.savefig(img_path, dpi=210, bbox_inches='tight')
+    plt.close(fig)
+
+    # Messaggio classifica testuale
     report = (
         "📊 *REPORT SETTIMANALE* ⚽️\n"
         "━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"📅 Settimana: *{get_week_key()}*\n\n"
+        f"📅 Settimana: *{week_key}*\n\n"
     )
-
-    sorted_players = sorted(
-        players,
-        key=lambda p: stats_week[p]["win"],
-        reverse=True
-    )
-
-    for idx, p in enumerate(sorted_players, 1):
+    # Ordina per vittorie (come il bar plot)
+    ordered = [players[i] for i in sorted_idx]
+    for idx, p in enumerate(ordered, 1):
         w_sett = stats_week[p]["win"]
         l_sett = stats_week[p]["lose"]
-
+        rank = ""
         if idx == 1 and w_sett > 0:
             rank = "👑"
         elif idx == 2:
@@ -573,10 +661,8 @@ async def send_and_pin_week_report(context: ContextTypes.DEFAULT_TYPE):
             rank = "🥉"
         else:
             rank = f"{idx}."
-
         week_games = w_sett + l_sett
         week_rate = (w_sett / week_games * 100) if week_games > 0 else 0
-
         if week_games == 0:
             performance = "⚪️ _Non ha giocato_"
         elif week_rate >= 70:
@@ -585,31 +671,111 @@ async def send_and_pin_week_report(context: ContextTypes.DEFAULT_TYPE):
             performance = "✅ _Buona settimana_"
         else:
             performance = "📉 _Può fare meglio_"
-
         report += (
             f"{rank} *{p}*\n"
             f"   🏆 {w_sett}W - ❌ {l_sett}L ({week_rate:.0f}%)\n"
             f"   {performance}\n\n"
         )
-
     report += (
         "━━━━━━━━━━━━━━━━━━━━\n"
         "🎮 _Stats by Calcetto Bot_"
     )
 
     try:
-        msg = await context.bot.send_message(
+        # Invia PNG + testo
+        msg_grafico = await context.bot.send_photo(
             chat_id=ID_CANAL,
-            text=report,
+            photo=open(img_path, 'rb'),
+            caption=report,
             parse_mode="Markdown"
         )
         await context.bot.pin_chat_message(
             chat_id=ID_CANAL,
-            message_id=msg.message_id,
+            message_id=msg_grafico.message_id,
             disable_notification=True
         )
-        print("✅ Messaggio fissato con successo!")
+        os.remove(img_path)
+        print("✅ Report PNG e messaggio fissati con successo!")
     except Exception as e:
+        print(f"❌ ERRORE nell'invio o pin: {e}")
+
+    import matplotlib.pyplot as plt
+
+    print(f"[JOB] Invio report automatico alle {datetime.datetime.now()}")
+
+    week_key = get_week_key()
+    # Dati giocatori e vittorie settimana
+    week_wins = [stats_week[p]["win"] for p in players]
+    week_losses = [stats_week[p]["lose"] for p in players]
+    week_labels = []
+    colors = []
+
+    sorted_idx = sorted(range(len(players)), key=lambda i: week_wins[i], reverse=True)
+    top_idxs = sorted_idx[:3]  # top 3 per medaglie
+
+    for i, p in enumerate(players):
+        # podio: oro, argento, bronzo, altri blu
+        if i == top_idxs[0] and week_wins[top_idxs[0]] > 0:
+            week_labels.append(f"🥇{p}")
+            colors.append("#ffd700")
+        elif i == top_idxs[1] and week_wins[top_idxs[1]] > 0:
+            week_labels.append(f"🥈{p}")
+            colors.append("#c0c0c0")
+        elif i == top_idxs[2] and week_wins[top_idxs[2]] > 0:
+            week_labels.append(f"🥉{p}")
+            colors.append("#cd7f32")
+        else:
+            week_labels.append(p)
+            colors.append("#2196f3")  # blu
+
+    # BAR PLOT PNG
+    fig, ax = plt.subplots(figsize=(9, 5))
+    bars = ax.barh(week_labels, week_wins, color=colors, height=0.6)
+    ax.set_title(f"Vittorie nella settimana {week_key}\n", fontsize=16, fontweight='bold')
+    ax.set_xlabel("Numero vittorie", fontsize=13)
+    ax.set_xlim(left=0)
+    ax.bar_label(bars, fmt='%d', label_type='edge', fontsize=13)
+    ax.grid(True, alpha=0.12, axis='x')
+    plt.tight_layout()
+    img_path = f"report_week_{week_key.replace('/','-')}.png"
+    fig.savefig(img_path, dpi=210, bbox_inches='tight')
+    plt.close(fig)
+
+    # Messaggio classifica testuale
+    report = (
+        "📊 *REPORT SETTIMANALE* ⚽️\n"
+        "━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"📅 Settimana: *{week_key}*\n\n"
+    )
+    # Ordina per vittorie (come il bar plot)
+    ordered = [players[i] for i in sorted_idx]
+    for idx, p in enumerate(ordered, 1):
+        w_sett = stats_week[p]["win"]
+        l_sett = stats_week[p]["lose"]
+        rank = ""
+        if idx == 1 and w_sett > 0:
+            rank
+        try:
+        # Invia PNG + testo
+        with open(img_path, 'rb') as photo_file:
+            msg_grafico = await context.bot.send_photo(
+                chat_id=ID_CANAL,
+                photo=photo_file,
+                caption=report,
+                parse_mode="Markdown"
+            )
+        os.remove(img_path)  # ELIMINA SUBITO DOPO IL SEND
+
+        await context.bot.pin_chat_message(
+            chat_id=ID_CANAL,
+            message_id=msg_grafico.message_id,
+            disable_notification=True
+        )
+        print("✅ Report PNG e messaggio fissati con successo!")
+    except Exception as e:
+        # Nel caso di errore di invio, prova comunque a eliminare il file
+        if os.path.exists(img_path):
+            os.remove(img_path)
         print(f"❌ ERRORE nell'invio o pin: {e}")
 
 
