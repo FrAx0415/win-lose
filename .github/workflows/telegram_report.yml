@@ -19,6 +19,7 @@ jobs:
 
       - name: Install dependencies
         run: |
+          ls
           pip install -r ../../requirements.txt
 
       - name: Send Telegram recap
