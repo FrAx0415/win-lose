@@ -10,3 +10,5 @@ pre-commit==4.0.1
 
 # Timezone Support (già incluso in Python 3.9+, ma esplicitiamo per chiarezza)
 pytz==2025.1
+
+matplotlib==3.10

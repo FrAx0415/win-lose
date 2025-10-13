@@ -9,6 +9,7 @@ import datetime
 from datetime import time
 import pytz
 from zoneinfo import ZoneInfo
+import matplotlib.pyplot as plt
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -163,6 +164,10 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "   _Genera report settimanale_\n\n"
         "🔄 `/reset <password>`\n"
         "   _Azzera contatori settimanali_\n\n"
+        "📊 `/storico <nome>`\n"
+        "   _Mostra trend vittorie settimanali con grafico PNG_\n"
+        "   _Es: /storico Fra_\n\n"
+
         "━━━━━━━━━━━━━━━━━━━━\n"
     )
     await update.message.reply_text(msg, parse_mode="Markdown")
@@ -477,6 +482,69 @@ async def cmd_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
 
+async def cmd_storico(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Mostra lo storico delle vittorie per un giocatore sotto forma di grafico PNG.
+    Uso: /storico <nome>
+    """
+    text = update.message.text
+    parts = text.split()
+    if len(parts) != 2:
+        await update.message.reply_text(
+            "❌ *Formato non valido.*\n\n"
+            "📝 Uso corretto:\n"
+            "`/storico <nome>`\n"
+            "Esempio: `/storico Fra`",
+            parse_mode="Markdown"
+        )
+        return
+
+    player = normalize_name(parts[1])
+    if not player:
+        await update.message.reply_text("❌ *Giocatore non trovato.*", parse_mode="Markdown")
+        return
+
+    # Prepara dati storico settimanale
+    labels = []
+    data = []
+    for week, week_stats in settimanali.items():
+        n_win = week_stats.get(player, {}).get('win', 0)
+        labels.append(week)
+        data.append(n_win)
+
+    if not any(data):
+        await update.message.reply_text(
+            f"ℹ️ Nessuna vittoria registrata per *{player}*.",
+            parse_mode="Markdown"
+        )
+        return
+
+    # Genera grafico PNG
+    fig, ax = plt.subplots(figsize=(7, 4))
+    ax.plot(labels, data, marker='o', color="#1e88e5", linewidth=2)
+    ax.set_title(f"Storico vittorie - {player}", fontsize=14)
+    ax.set_xlabel("Settimana")
+    ax.set_ylabel("Vittorie")
+    plt.xticks(rotation=45, fontsize=8)
+    plt.yticks(fontsize=10)
+    plt.grid(True, alpha=0.3)
+
+    img_path = f"storico_{player}.png"
+    plt.tight_layout()
+    fig.savefig(img_path)
+    plt.close(fig)
+
+    # Testo risposta + grafico allegato
+    await update.message.reply_text(
+        f"📈 *Storico di {player}*\n"
+        f"Totale vittorie: *{totali[player]['win']}* | Sconfitte: *{totali[player]['lose']}*\n"
+        f"Prestazione settimanale qui sotto 👇",
+        parse_mode="Markdown"
+    )
+    await context.bot.send_photo(chat_id=update.effective_chat.id, photo=open(img_path, 'rb'))
+
+    os.remove(img_path)
+
 
 async def send_and_pin_week_report(context: ContextTypes.DEFAULT_TYPE):
     print(f"[JOB] Invio report automatico alle {datetime.datetime.now()}")
@@ -580,6 +648,8 @@ def main():
     app.add_handler(CommandHandler("nomi", cmd_nomi))
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("report", cmd_report))
+    app.add_handler(CommandHandler("storico", cmd_storico))
+
 
     print("🛡️ Registro error handler...")
     app.add_error_handler(error_handler)
