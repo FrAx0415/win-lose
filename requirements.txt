@@ -1,0 +1,12 @@
+# Core Bot Dependencies
+python-telegram-bot==21.11.1
+nest-asyncio==1.6.0
+
+# Environment Variables Management
+python-dotenv==1.0.1
+
+# Git Pre-commit Hooks
+pre-commit==4.0.1
+
+# Timezone Support (già incluso in Python 3.9+, ma esplicitiamo per chiarezza)
+pytz==2025.1

@@ -10,18 +10,31 @@ from datetime import time
 import pytz
 from zoneinfo import ZoneInfo
 
-# NUOVO IMPORT
+# NUOVO: Importa e carica variabili d'ambiente
+from dotenv import load_dotenv
+
+# Carica variabili da .env
+load_dotenv()
+
 from git_helper import git_auto_sync
 
 nest_asyncio.apply()
 
-BOT_TOKEN = "8025040575:AAFA5cw3YpjrnsdU58k9_wB9MNwLp0GJ9ds"
-players = ["Fra", "Dani", "Salvo", "Dennis", "Joel", "Luca"]
+# MODIFICATO: Leggi da environment variables invece che hardcoded
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+ID_CANAL = int(os.getenv("CHANNEL_ID"))
+RESET_PASSWORD = os.getenv("RESET_PASSWORD", "ciao")  # default "ciao" se non specificato
 
-ID_CANAL = -1003192950351
+if not BOT_TOKEN:
+    raise ValueError("BOT_TOKEN non trovato nel file .env!")
+
+players = ["Fra", "Dani", "Salvo", "Dennis", "Joel", "Luca"]
 
 TOTALI_FILE = "stats_totali.json"
 SETTIMANALI_FILE = "stats_settimanali.json"
+
+# ... resto del codice invariato ...
+
 
 def get_week_key():
     today = datetime.date.today()
@@ -175,8 +188,9 @@ async def cmd_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.effective_chat.send_message("Comando non gestito su questa tipologia di messaggio.")
         return
     parts = update.message.text.split()
-    if len(parts) < 2 or parts[1] != "ciao":
-        await update.message.reply_text("Password errata! Per resettare serve /reset ciao")
+    # MODIFICATO: Usa password da .env
+    if len(parts) < 2 or parts[1] != RESET_PASSWORD:
+        await update.message.reply_text(f"Password errata! Per resettare serve /reset {RESET_PASSWORD}")
         return
     week_key = get_week_key()
     settimanali[week_key] = stats_week.copy()
@@ -186,6 +200,7 @@ async def cmd_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
         stats_week[p] = {"win": 0, "lose": 0}
     save_stats_week(settimanali, stats_week)
     await update.message.reply_text("Contatori settimanali azzerati.")
+
 
 async def cmd_nomi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
