@@ -164,7 +164,6 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🔄 `/reset <password>`\n"
         "   _Azzera contatori settimanali_\n\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        "💡 _Bot sviluppato con_ ❤️"
     )
     await update.message.reply_text(msg, parse_mode="Markdown")
 
