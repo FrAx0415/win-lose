@@ -37,36 +37,50 @@ def run_git_command(command: list[str], cwd: str = ".") -> tuple[bool, str]:
 def git_sync_and_commit(files: list[str], commit_message: str) -> bool:
     """
     Workflow semplificato: commit locale → pull → push.
-    Evita problemi di rebase con modifiche non committate.
+    Gestisce modifiche automatiche dei pre-commit hooks.
     """
     print(f"[GIT] Sync automatico per {len(files)} file...")
 
-    # STEP 1: Committa le modifiche locali subito
+    # STEP 1: Add iniziale
     for f in files:
         success, output = run_git_command(["git", "add", f])
         if not success:
             print(f"[GIT] ⚠️ Add fallito per {f}: {output}")
             return False
 
+    # STEP 2: Primo tentativo di commit
     success, output = run_git_command(["git", "commit", "-m", commit_message])
-    if not success:
+
+    # STEP 3: Se pre-commit ha modificato file, ri-add e ricommittta
+    if not success and "files were modified by this hook" in output:
+        print("[GIT] ℹ️ Pre-commit ha formattato i file, ri-aggiungo...")
+
+        # Ri-add tutti i file modificati dai hook
+        for f in files:
+            run_git_command(["git", "add", f])
+
+        # Secondo tentativo di commit
+        success, output = run_git_command(["git", "commit", "-m", commit_message])
+
+        if not success:
+            print(f"[GIT] ❌ Commit fallito anche dopo ri-add: {output}")
+            return False
+    elif not success:
         if "nothing to commit" in output.lower():
             print("[GIT] ℹ️ Nessuna modifica da committare")
-            # Continua comunque con pull per allinearsi
         else:
             print(f"[GIT] ❌ Commit fallito: {output}")
             return False
 
-    # STEP 2: Pull con merge (NON rebase) per semplicità
+    # STEP 4: Pull con merge
     success, output = run_git_command(["git", "pull", "--no-rebase"])
     if not success:
         if "already up to date" in output.lower():
             print("[GIT] ℹ️ Già aggiornato con remoto")
         else:
             print(f"[GIT] ⚠️ Pull fallito: {output}")
-            # Non blocchiamo, proviamo comunque a pushare
 
-    # STEP 3: Push
+    # STEP 5: Push
     success, output = run_git_command(["git", "push"])
     if not success:
         print(f"[GIT] ❌ Push fallito: {output}")
