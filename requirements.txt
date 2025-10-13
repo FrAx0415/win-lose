@@ -12,3 +12,5 @@ pre-commit==4.0.1
 pytz==2025.1
 
 matplotlib==3.10
+
+requests
