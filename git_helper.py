@@ -34,31 +34,47 @@ def run_git_command(command: list[str], cwd: str = ".") -> tuple[bool, str]:
     except Exception as e:
         return False, str(e)
 
-def git_sync_before_write() -> bool:
+def git_sync_and_commit(files: list[str], commit_message: str) -> bool:
     """
-    Sincronizza con remoto (fetch + rebase) prima di scrivere file.
-
-    Returns:
-        True se sync riuscito, False se errori (conflitti, rete, ecc.)
+    Workflow semplificato: commit locale → pull → push.
+    Evita problemi di rebase con modifiche non committate.
     """
-    print("[GIT] Sincronizzazione pre-scrittura...")
+    print(f"[GIT] Sync automatico per {len(files)} file...")
 
-    # Fetch da origin per aggiornare refs remote
-    success, output = run_git_command(["git", "fetch", "origin"])
+    # STEP 1: Committa le modifiche locali subito
+    for f in files:
+        success, output = run_git_command(["git", "add", f])
+        if not success:
+            print(f"[GIT] ⚠️ Add fallito per {f}: {output}")
+            return False
+
+    success, output = run_git_command(["git", "commit", "-m", commit_message])
     if not success:
-        print(f"[GIT] ❌ Fetch fallito: {output}")
+        if "nothing to commit" in output.lower():
+            print("[GIT] ℹ️ Nessuna modifica da committare")
+            # Continua comunque con pull per allinearsi
+        else:
+            print(f"[GIT] ❌ Commit fallito: {output}")
+            return False
+
+    # STEP 2: Pull con merge (NON rebase) per semplicità
+    success, output = run_git_command(["git", "pull", "--no-rebase"])
+    if not success:
+        if "already up to date" in output.lower():
+            print("[GIT] ℹ️ Già aggiornato con remoto")
+        else:
+            print(f"[GIT] ⚠️ Pull fallito: {output}")
+            # Non blocchiamo, proviamo comunque a pushare
+
+    # STEP 3: Push
+    success, output = run_git_command(["git", "push"])
+    if not success:
+        print(f"[GIT] ❌ Push fallito: {output}")
         return False
 
-    # Rebase sulla branch corrente remota
-    success, output = run_git_command(["git", "rebase", "origin/main"])
-    if not success:
-        # Se rebase fallisce (es. conflitti), aborta per sicurezza
-        print(f"[GIT] ❌ Rebase fallito: {output}")
-        run_git_command(["git", "rebase", "--abort"])
-        return False
-
-    print("[GIT] ✅ Sincronizzazione completata")
+    print("[GIT] ✅ Sync completato")
     return True
+
 
 def git_commit_and_push(files: list[str], message: str) -> bool:
     """
@@ -99,16 +115,5 @@ def git_commit_and_push(files: list[str], message: str) -> bool:
     return True
 
 def git_auto_sync(files: list[str], commit_message: str) -> bool:
-    """
-    Workflow completo: sync → commit → push.
-
-    Args:
-        files: File da committare
-        commit_message: Messaggio commit
-
-    Returns:
-        True se tutto ok, False se errori
-    """
-    if not git_sync_before_write():
-        return False
-    return git_commit_and_push(files, commit_message)
+    """Alias per compatibilità con il codice esistente"""
+    return git_sync_and_commit(files, commit_message)
