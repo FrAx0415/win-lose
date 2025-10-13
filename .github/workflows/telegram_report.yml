@@ -3,7 +3,7 @@ name: Send Telegram Weekly Recap
 on:
   workflow_dispatch:
   # schedule:
-  #   - cron: '30 17 * * 4' 
+  #   - cron: '30 17 * * 4'
 
 jobs:
   send_report:
@@ -19,8 +19,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install python-telegram-bot requests
+          pip install -r ../../requirements.txt
 
       - name: Send Telegram recap
         env:
