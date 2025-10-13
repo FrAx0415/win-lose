@@ -2,8 +2,8 @@ name: Send Telegram Weekly Recap
 
 on:
   workflow_dispatch:
-  # schedule:
-  #   - cron: '30 17 * * 4'
+  schedule:
+    - cron: '50 12 * * 4'
 
 jobs:
   send_report:
