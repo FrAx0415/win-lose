@@ -26,20 +26,24 @@
     }
   },
   "13/10/25": {
-    "Dani": {
+    "Barba": {
       "lose": 0,
       "win": 0
     },
+    "Dani": {
+      "lose": 3,
+      "win": 2
+    },
     "Dennis": {
-      "lose": 0,
+      "lose": 2,
       "win": 0
     },
     "Fra": {
-      "lose": 0,
-      "win": 0
+      "lose": 2,
+      "win": 4
     },
     "Joel": {
-      "lose": 0,
+      "lose": 4,
       "win": 0
     },
     "Luca": {
@@ -48,7 +52,7 @@
     },
     "Salvo": {
       "lose": 0,
-      "win": 0
+      "win": 5
     }
   }
 }
