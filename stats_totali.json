@@ -4,16 +4,16 @@
     "win": 0
   },
   "Dani": {
-    "lose": 3,
-    "win": 6
+    "lose": 4,
+    "win": 8
   },
   "Dennis": {
-    "lose": 6,
-    "win": 0
+    "lose": 8,
+    "win": 1
   },
   "Fra": {
-    "lose": 6,
-    "win": 4
+    "lose": 7,
+    "win": 6
   },
   "Joel": {
     "lose": 3,
@@ -24,7 +24,7 @@
     "win": 0
   },
   "Salvo": {
-    "lose": 0,
-    "win": 9
+    "lose": 2,
+    "win": 10
   }
 }
