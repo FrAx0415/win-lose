@@ -8,11 +8,11 @@
     "win": 9
   },
   "Dennis": {
-    "lose": 14,
+    "lose": 16,
     "win": 2
   },
   "Fra": {
-    "lose": 10,
+    "lose": 12,
     "win": 10
   },
   "Joel": {
@@ -21,10 +21,10 @@
   },
   "Luca": {
     "lose": 0,
-    "win": 0
+    "win": 2
   },
   "Salvo": {
     "lose": 3,
-    "win": 16
+    "win": 18
   }
 }
