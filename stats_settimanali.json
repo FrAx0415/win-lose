@@ -91,16 +91,16 @@
       "win": 0
     },
     "Dani": {
-      "lose": 0,
+      "lose": 1,
       "win": 0
     },
     "Dennis": {
       "lose": 0,
-      "win": 0
+      "win": 1
     },
     "Fra": {
       "lose": 0,
-      "win": 0
+      "win": 1
     },
     "Joel": {
       "lose": 0,
@@ -111,7 +111,7 @@
       "win": 0
     },
     "Salvo": {
-      "lose": 0,
+      "lose": 1,
       "win": 0
     }
   }
