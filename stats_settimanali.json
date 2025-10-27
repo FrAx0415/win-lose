@@ -84,5 +84,35 @@
       "lose": 5,
       "win": 13
     }
+  },
+  "27/10/25": {
+    "Barba": {
+      "lose": 0,
+      "win": 0
+    },
+    "Dani": {
+      "lose": 0,
+      "win": 0
+    },
+    "Dennis": {
+      "lose": 0,
+      "win": 0
+    },
+    "Fra": {
+      "lose": 0,
+      "win": 0
+    },
+    "Joel": {
+      "lose": 0,
+      "win": 0
+    },
+    "Luca": {
+      "lose": 0,
+      "win": 0
+    },
+    "Salvo": {
+      "lose": 0,
+      "win": 0
+    }
   }
 }

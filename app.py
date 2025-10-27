@@ -20,6 +20,10 @@ from git_helper import git_auto_sync_async
 
 nest_asyncio.apply()
 
+# Define constants first
+TOTALI_FILE = "stats_totali.json"
+SETTIMANALI_FILE = "stats_settimanali.json"
+
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ID_CANAL = int(os.getenv("CHANNEL_ID"))
 RESET_PASSWORD = os.getenv("RESET_PASSWORD", "ciao")
@@ -27,16 +31,33 @@ RESET_PASSWORD = os.getenv("RESET_PASSWORD", "ciao")
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN non trovato nel file .env!")
 
-players = ["Fra", "Dani", "Salvo", "Dennis", "Joel", "Luca"]
+def get_players():
+    """
+    Carica la lista dei giocatori dai file di statistiche.
+    Ritorna la lista ordinata di tutti i giocatori registrati.
+    """
+    if os.path.exists(TOTALI_FILE):
+        with open(TOTALI_FILE, "r") as f:
+            data = json.load(f)
+            return sorted(list(data.keys()))
+    return []
 
-TOTALI_FILE = "stats_totali.json"
-SETTIMANALI_FILE = "stats_settimanali.json"
+# Now we can use get_players()
+players = get_players()
 
 # Stati del ConversationHandler
 MENU, CHOOSE_PLAYER, CHOOSE_QTY, CONFIRM = range(4)
 # Nuovi stati per "Nuova Partita"
 BLU_G1, BLU_G2, ROSSO_G1, ROSSO_G2, NUM_ROUND, VINCITORE_R1, VINCITORE_R2, VINCITORE_R3 = range(4, 12)
 
+# ...rest of the code...
+
+def initialize_player_stats(name: str, stats_dict: dict) -> None:
+    """
+    Inizializza le statistiche per un nuovo giocatore in un dizionario
+    """
+    if name not in stats_dict:
+        stats_dict[name] = {"win": 0, "lose": 0}
 def get_week_key():
     today = datetime.date.today()
     monday = today - datetime.timedelta(days=today.weekday())
@@ -45,13 +66,8 @@ def get_week_key():
 def load_totali():
     if os.path.exists(TOTALI_FILE):
         with open(TOTALI_FILE, "r") as f:
-            data = json.load(f)
-        for p in players:
-            if p not in data:
-                data[p] = {"win": 0, "lose": 0}
-        return data
-    else:
-        return {p: {"win": 0, "lose": 0} for p in players}
+            return json.load(f)
+    return {}
 
 def save_totali(data):
     """Salva totali (solo file locale, commit in background)"""
@@ -74,12 +90,13 @@ def load_stats_settimana_corrente(stats_settimanali):
     week_key = get_week_key()
     if week_key in stats_settimanali:
         week_stats = stats_settimanali[week_key]
-        for p in players:
-            if p not in week_stats:
-                week_stats[p] = {"win": 0, "lose": 0}
+        # Assicurati che tutti i giocatori abbiano statistiche
+        for p in get_players():
+            initialize_player_stats(p, week_stats)
         return week_stats
     else:
-        empty = {p: {"win": 0, "lose": 0} for p in players}
+        # Crea nuovo dizionario settimanale per tutti i giocatori
+        empty = {p: {"win": 0, "lose": 0} for p in get_players()}
         stats_settimanali[week_key] = empty
         save_settimanali(stats_settimanali)
         return empty
@@ -95,7 +112,8 @@ stats_week = load_stats_settimana_corrente(settimanali)
 
 def normalize_name(name: str):
     name = name.strip()
-    for p in players:
+    current_players = get_players()
+    for p in current_players:
         if p.lower() == name.lower():
             return p
     return None
@@ -124,15 +142,15 @@ def add_player_to_file(name: str) -> bool:
     if name in players:
         return False
 
-    # Aggiungi alla lista
-    players.append(name)
+    # Inizializza statistiche
+    initialize_player_stats(name, totali)
+    initialize_player_stats(name, stats_week)
 
-    # Aggiungi a totali
-    totali[name] = {"win": 0, "lose": 0}
+    # Aggiorna lista players
+    players = get_players()
+
+    # Salva modifiche
     save_totali(totali)
-
-    # Aggiungi a stats settimana corrente
-    stats_week[name] = {"win": 0, "lose": 0}
     save_stats_week(settimanali, stats_week)
 
     return True
