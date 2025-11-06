@@ -23,6 +23,7 @@ nest_asyncio.apply()
 # Define constants first
 TOTALI_FILE = "stats_totali.json"
 SETTIMANALI_FILE = "stats_settimanali.json"
+MATCHES_HISTORY_FILE = "matches_history.json"
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ID_CANAL = int(os.getenv("CHANNEL_ID"))
@@ -62,6 +63,130 @@ def get_week_key():
     today = datetime.date.today()
     monday = today - datetime.timedelta(days=today.weekday())
     return monday.strftime("%d/%m/%y")
+
+def load_matches_history():
+    if os.path.exists(MATCHES_HISTORY_FILE):
+        with open(MATCHES_HISTORY_FILE, "r") as f:
+            return json.load(f)
+    return {"matches": []}
+
+def save_matches_history(data):
+    with open(MATCHES_HISTORY_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+def remove_last_match():
+    """Rimuove l'ultima partita dallo storico e aggiorna le statistiche dei giocatori"""
+    history = load_matches_history()
+
+    if not history["matches"]:
+        return None, None  # Nessuna partita da rimuovere
+
+    last_match = history["matches"].pop()  # Rimuove e ritorna l'ultima partita
+    save_matches_history(history)
+
+    # Aggiorna le statistiche
+    blue_team = last_match["blue_team"]
+    red_team = last_match["red_team"]
+    winner = last_match["winner"]
+
+    # Determina vincitori e perdenti
+    if winner == "blue":
+        winners = blue_team
+        losers = red_team
+    else:  # red
+        winners = red_team
+        losers = blue_team
+
+    # Restituisce le info necessarie per aggiornare le statistiche
+    return winners, losers
+
+def add_match_to_history(blue_team, red_team, winner, pass_under=False):
+    history = load_matches_history()
+    match = {
+        "date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "blue_team": blue_team,
+        "red_team": red_team,
+        "winner": winner,
+        "pass_under": pass_under
+    }
+    history["matches"].append(match)
+    save_matches_history(history)
+
+def get_all_possible_teams():
+    """Returns all possible combinations of teams from available players"""
+    from itertools import combinations
+    players = get_players()
+    return list(combinations(players, 2))
+
+def get_team_stats(team):
+    """Get statistics for a specific team from match history"""
+    history = load_matches_history()
+    wins = 0
+    losses = 0
+    current_streak = 0  # positive for wins, negative for losses
+    max_win_streak = 0
+    max_lose_streak = 0
+
+    team_set = set(team)
+    for match in history["matches"]:
+        blue_set = set(match["blue_team"])
+        red_set = set(match["red_team"])
+
+        if team_set == blue_set:
+            if match["winner"] == "blue":
+                wins += 1
+                current_streak = max(1, current_streak + 1)
+                max_win_streak = max(max_win_streak, current_streak)
+            else:
+                losses += 1
+                current_streak = min(-1, current_streak - 1)
+                max_lose_streak = max(max_lose_streak, abs(current_streak))
+        elif team_set == red_set:
+            if match["winner"] == "red":
+                wins += 1
+                current_streak = max(1, current_streak + 1)
+                max_win_streak = max(max_win_streak, current_streak)
+            else:
+                losses += 1
+                current_streak = min(-1, current_streak - 1)
+                max_lose_streak = max(max_lose_streak, abs(current_streak))
+
+    return {
+        "wins": wins,
+        "losses": losses,
+        "win_rate": (wins / (wins + losses) * 100) if wins + losses > 0 else 0,
+        "max_win_streak": max_win_streak,
+        "max_lose_streak": max_lose_streak,
+        "current_streak": current_streak
+    }
+
+def get_strongest_team():
+    """Returns the team with the highest win rate (minimum 5 matches)"""
+    teams = get_all_possible_teams()
+    best_team = None
+    best_win_rate = 0
+
+    for team in teams:
+        stats = get_team_stats(team)
+        if (stats["wins"] + stats["losses"]) >= 5 and stats["win_rate"] > best_win_rate:
+            best_team = team
+            best_win_rate = stats["win_rate"]
+
+    return best_team, best_win_rate
+
+def get_weakest_team():
+    """Returns the team with the lowest win rate (minimum 5 matches)"""
+    teams = get_all_possible_teams()
+    worst_team = None
+    worst_win_rate = 100
+
+    for team in teams:
+        stats = get_team_stats(team)
+        if (stats["wins"] + stats["losses"]) >= 5 and stats["win_rate"] < worst_win_rate:
+            worst_team = team
+            worst_win_rate = stats["win_rate"]
+
+    return worst_team, worst_win_rate
 
 def load_totali():
     if os.path.exists(TOTALI_FILE):
@@ -173,6 +298,13 @@ async def cmd_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [
             InlineKeyboardButton("👥 Giocatori", callback_data="men_nomi"),
             InlineKeyboardButton("➕ Aggiungi", callback_data="men_addplayer")
+        ],
+        [
+            InlineKeyboardButton("🔝 Team Migliore", callback_data="men_best_team"),
+            InlineKeyboardButton("📉 Team Peggiore", callback_data="men_worst_team")
+        ],
+        [
+            InlineKeyboardButton("⏮️ Rimuovi Ultima Partita", callback_data="men_remove_last")
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -186,6 +318,86 @@ async def cmd_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+
+    if query.data == "men_remove_last":
+        winners, losers = remove_last_match()
+        if not winners or not losers:
+            await query.edit_message_text(
+                "❌ *Nessuna partita da rimuovere*\n\n"
+                "Lo storico delle partite è vuoto.",
+                parse_mode="Markdown"
+            )
+            return ConversationHandler.END
+
+        # Aggiorna le statistiche totali
+        for player in winners:
+            totali[player]["win"] = max(0, totali[player]["win"] - 1)
+            stats_week[player]["win"] = max(0, stats_week[player]["win"] - 1)
+
+        for player in losers:
+            totali[player]["lose"] = max(0, totali[player]["lose"] - 1)
+            stats_week[player]["lose"] = max(0, stats_week[player]["lose"] - 1)
+
+        # Salva le modifiche
+        save_totali(totali)
+        save_stats_week(settimanali, stats_week)
+
+        # Commit in background
+        asyncio.create_task(
+            git_auto_sync_async(
+                files=[TOTALI_FILE, SETTIMANALI_FILE, MATCHES_HISTORY_FILE],
+                commit_message=f"remove: ultima partita rimossa"
+            )
+        )
+
+        await query.edit_message_text(
+            "✅ *Ultima partita rimossa*\n\n"
+            f"🏆 Vincitori: *{', '.join(winners)}*\n"
+            f"❌ Perdenti: *{', '.join(losers)}*\n\n"
+            "📊 _Statistiche aggiornate_",
+            parse_mode="Markdown"
+        )
+        return ConversationHandler.END
+
+    if query.data == "men_best_team":
+        best_team, win_rate = get_strongest_team()
+        if best_team:
+            stats = get_team_stats(best_team)
+            msg = (
+                f"🏆 *Team più forte*\n\n"
+                f"👥 Giocatori: *{best_team[0]} + {best_team[1]}*\n"
+                f"📊 Win Rate: *{win_rate:.1f}%*\n"
+                f"🎮 Partite: *{stats['wins'] + stats['losses']}*\n"
+                f"✅ Vittorie: *{stats['wins']}*\n"
+                f"❌ Sconfitte: *{stats['losses']}*\n"
+                f"🔥 Streak vittorie max: *{stats['max_win_streak']}*\n"
+                f"📉 Streak sconfitte max: *{stats['max_lose_streak']}*\n"
+                f"📈 Streak attuale: *{abs(stats['current_streak'])}* {'vittorie' if stats['current_streak'] > 0 else 'sconfitte'}"
+            )
+            await query.edit_message_text(msg, parse_mode="Markdown")
+        else:
+            await query.edit_message_text("❌ Non ci sono ancora abbastanza partite per determinare il team migliore")
+        return ConversationHandler.END
+
+    if query.data == "men_worst_team":
+        worst_team, win_rate = get_weakest_team()
+        if worst_team:
+            stats = get_team_stats(worst_team)
+            msg = (
+                f"📉 *Team con più difficoltà*\n\n"
+                f"👥 Giocatori: *{worst_team[0]} + {worst_team[1]}*\n"
+                f"📊 Win Rate: *{win_rate:.1f}%*\n"
+                f"🎮 Partite: *{stats['wins'] + stats['losses']}*\n"
+                f"✅ Vittorie: *{stats['wins']}*\n"
+                f"❌ Sconfitte: *{stats['losses']}*\n"
+                f"🔥 Streak vittorie max: *{stats['max_win_streak']}*\n"
+                f"📉 Streak sconfitte max: *{stats['max_lose_streak']}*\n"
+                f"📈 Streak attuale: *{abs(stats['current_streak'])}* {'vittorie' if stats['current_streak'] > 0 else 'sconfitte'}"
+            )
+            await query.edit_message_text(msg, parse_mode="Markdown")
+        else:
+            await query.edit_message_text("❌ Non ci sono ancora abbastanza partite per determinare il team peggiore")
+        return ConversationHandler.END
 
     # NUOVO: Flusso Nuova Partita
     if query.data == "men_nuova":
@@ -531,7 +743,9 @@ async def numero_round(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     keyboard = [
         [InlineKeyboardButton("🔵 Squadra BLU", callback_data="win_r1_blu")],
-        [InlineKeyboardButton("🔴 Squadra ROSSA", callback_data="win_r1_rosso")]
+        [InlineKeyboardButton("🔵 BLU (passaggio sotto)", callback_data="win_r1_blu_under")],
+        [InlineKeyboardButton("🔴 Squadra ROSSA", callback_data="win_r1_rosso")],
+        [InlineKeyboardButton("🔴 ROSSA (passaggio sotto)", callback_data="win_r1_rosso_under")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(f"🏆 Chi ha vinto la Partita 1?", reply_markup=reply_markup)
@@ -541,8 +755,14 @@ async def numero_round(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def vincitore_round1(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    vincitore = query.data.split("_")[2]  # "blu" o "rosso"
+    data_parts = query.data.split("_")
+    vincitore = data_parts[2]  # "blu" o "rosso"
+    pass_under = False
+    if len(data_parts) > 3:
+        pass_under = data_parts[3] == "under"
+
     context.user_data['partita']['vincitore_r1'] = vincitore
+    context.user_data['partita']['pass_under_r1'] = pass_under
 
     num_rounds = context.user_data['partita']['num_rounds']
 
@@ -551,7 +771,9 @@ async def vincitore_round1(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     keyboard = [
         [InlineKeyboardButton("🔵 Squadra BLU", callback_data="win_r2_blu")],
-        [InlineKeyboardButton("🔴 Squadra ROSSA", callback_data="win_r2_rosso")]
+        [InlineKeyboardButton("� BLU (passaggio sotto)", callback_data="win_r2_blu_under")],
+        [InlineKeyboardButton("�🔴 Squadra ROSSA", callback_data="win_r2_rosso")],
+        [InlineKeyboardButton("🔴 ROSSA (passaggio sotto)", callback_data="win_r2_rosso_under")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(f"🏆 Chi ha vinto la Partita 2?", reply_markup=reply_markup)
@@ -561,8 +783,14 @@ async def vincitore_round1(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def vincitore_round2(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    vincitore = query.data.split("_")[2]
+    data_parts = query.data.split("_")
+    vincitore = data_parts[2]  # "blu" o "rosso"
+    pass_under = False
+    if len(data_parts) > 3:
+        pass_under = data_parts[3] == "under"
+
     context.user_data['partita']['vincitore_r2'] = vincitore
+    context.user_data['partita']['pass_under_r2'] = pass_under
 
     num_rounds = context.user_data['partita']['num_rounds']
 
@@ -571,7 +799,9 @@ async def vincitore_round2(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     keyboard = [
         [InlineKeyboardButton("🔵 Squadra BLU", callback_data="win_r3_blu")],
-        [InlineKeyboardButton("🔴 Squadra ROSSA", callback_data="win_r3_rosso")]
+        [InlineKeyboardButton("� BLU (passaggio sotto)", callback_data="win_r3_blu_under")],
+        [InlineKeyboardButton("�🔴 Squadra ROSSA", callback_data="win_r3_rosso")],
+        [InlineKeyboardButton("🔴 ROSSA (passaggio sotto)", callback_data="win_r3_rosso_under")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(f"🏆 Chi ha vinto la Partita 3?", reply_markup=reply_markup)
@@ -581,8 +811,14 @@ async def vincitore_round2(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def vincitore_round3(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    vincitore = query.data.split("_")[2]
+    data_parts = query.data.split("_")
+    vincitore = data_parts[2]  # "blu" o "rosso"
+    pass_under = False
+    if len(data_parts) > 3:
+        pass_under = data_parts[3] == "under"
+
     context.user_data['partita']['vincitore_r3'] = vincitore
+    context.user_data['partita']['pass_under_r3'] = pass_under
 
     return await salva_partita(query, context)
 
@@ -595,12 +831,30 @@ async def salva_partita(query, context):
     vittorie_blu = 0
     vittorie_rosso = 0
 
+    # Squadre
+    blue_team = [partita['blu_g1'], partita['blu_g2']]
+    red_team = [partita['rosso_g1'], partita['rosso_g2']]
+
     for i in range(1, num_rounds + 1):
         vincitore = partita.get(f'vincitore_r{i}')
         if vincitore == 'blu':
             vittorie_blu += 1
+            # Salva partita nello storico
+            add_match_to_history(
+                blue_team,
+                red_team,
+                'blue',
+                partita.get(f'pass_under_r{i}', False)
+            )
         elif vincitore == 'rosso':
             vittorie_rosso += 1
+            # Salva partita nello storico
+            add_match_to_history(
+                blue_team,
+                red_team,
+                'red',
+                partita.get(f'pass_under_r{i}', False)
+            )
 
     # Assegna vittorie/sconfitte ai giocatori
     blu_g1 = partita['blu_g1']
@@ -1342,8 +1596,8 @@ def main():
     print("🔗 Aggancio handlers...")
     app.add_handler(CommandHandler("win", cmd_win))
     app.add_handler(CommandHandler("lose", cmd_lose))
-    app.add_handler(CommandHandler("winRemove", cmd_winRemove))  # NUOVO
-    app.add_handler(CommandHandler("loseRemove", cmd_loseRemove))  # NUOVO
+    app.add_handler(CommandHandler("winRemove", cmd_winRemove))
+    app.add_handler(CommandHandler("loseRemove", cmd_loseRemove))
     app.add_handler(CommandHandler("add", cmd_add_player))
     app.add_handler(CommandHandler("totali", cmd_totali))
     app.add_handler(CommandHandler("reset", cmd_reset))

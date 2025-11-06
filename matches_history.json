@@ -1,3 +1,56 @@
 {
-  "matches": []
+  "matches": [
+    {
+      "blue_team": [
+        "Dani",
+        "Fra"
+      ],
+      "date": "2025-11-06 15:42:38",
+      "pass_under": false,
+      "red_team": [
+        "Dennis",
+        "Joel"
+      ],
+      "winner": "blue"
+    },
+    {
+      "blue_team": [
+        "Dani",
+        "Fra"
+      ],
+      "date": "2025-11-06 15:42:38",
+      "pass_under": false,
+      "red_team": [
+        "Dennis",
+        "Joel"
+      ],
+      "winner": "blue"
+    },
+    {
+      "blue_team": [
+        "Fra",
+        "Dennis"
+      ],
+      "date": "2025-11-06 15:43:01",
+      "pass_under": false,
+      "red_team": [
+        "Dani",
+        "Joel"
+      ],
+      "winner": "red"
+    },
+    {
+      "blue_team": [
+        "Fra",
+        "Dennis"
+      ],
+      "date": "2025-11-06 15:43:01",
+      "pass_under": false,
+      "red_team": [
+        "Dani",
+        "Joel"
+      ],
+      "winner": "red"
+    }
+  ]
 }
